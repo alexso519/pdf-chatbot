@@ -3,11 +3,12 @@ from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import Ollama
+from langchain_huggingface import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
 from langchain.chains import RetrievalQA
+from transformers import pipeline
 import os
 import uuid
 from datetime import datetime
@@ -15,7 +16,7 @@ from datetime import datetime
 # Set Hugging Face endpoint
 os.environ['HF_ENDPOINT'] = "https://hf-mirror.com"
 
-# Custom CSS for modern UI (combined from both files)
+# Custom CSS for modern UI
 st.markdown("""
     <style>
     .stApp {
@@ -119,7 +120,6 @@ def process_and_add_to_vector_store(filename):
 if mode == "Owner Portal":
     st.title("📂 Owner's Portal: PDF Management")
 
-    # Upload PDF
     with st.container():
         st.header("📤 Upload PDF")
         uploaded_file = st.file_uploader("Drag and drop a PDF file here", type="pdf", key="uploader")
@@ -138,7 +138,6 @@ if mode == "Owner Portal":
             process_and_add_to_vector_store(saved_filename)
             st.success(f"Uploaded PDF: **{uploaded_filename}**")
 
-    # List uploaded PDFs
     st.header("📄 Uploaded PDFs")
     uploaded_pdfs = list_uploaded_pdfs()
     if uploaded_pdfs:
@@ -153,7 +152,6 @@ if mode == "Owner Portal":
     else:
         st.info("No PDFs uploaded yet.")
 
-    # Vector Store Status
     st.header("🔍 Vector Store Status")
     if os.path.exists("vector_store"):
         st.success("✅ Vector store is up-to-date.")
@@ -165,31 +163,34 @@ elif mode == "Chatbot":
     st.title("Chatbot Assistant")
     st.markdown("Your AI partner, ready to help you")
 
-    # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display chat messages
     with st.container():
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-    # Load vector store
     if "vector_store" not in st.session_state:
         st.session_state.vector_store = load_vector_store()
     if st.session_state.vector_store is None:
         st.error("Vector store not found. Please upload PDFs in the Owner Portal.")
         st.stop()
 
-    # Define retriever
     retriever = st.session_state.vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 5, "score_threshold": 0.7}
     )
 
-    # Define LLM and prompt
-    llm = Ollama(model="deepseek-r1:1.5b")
+    # Use Hugging Face model instead of Ollama
+    hf_pipeline = pipeline(
+        "text-generation",
+        model="distilgpt2",  # Lightweight model for demo; replace with a better one if needed
+        max_new_tokens=50,   # Limit response length
+        truncation=True
+    )
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+
     prompt = """
     You are an AI assistant trained to answer questions based on the provided context.
     Follow these rules strictly:
@@ -203,7 +204,6 @@ elif mode == "Chatbot":
     Answer:"""
     QA_CHAIN_PROMPT = PromptTemplate.from_template(prompt)
 
-    # Define chains
     llm_chain = LLMChain(llm=llm, prompt=QA_CHAIN_PROMPT, verbose=True)
     document_prompt = PromptTemplate(
         input_variables=["page_content", "source"],
@@ -221,7 +221,6 @@ elif mode == "Chatbot":
         return_source_documents=True,
     )
 
-    # User input
     user_input = st.chat_input("Type your question here...")
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
@@ -234,8 +233,6 @@ elif mode == "Chatbot":
             if not result.get("source_documents"):
                 response = "I don't know."
             else:
-                if "<think>" in response:
-                    response = response.split("</think>")[-1].strip()
                 response = response.split(".")[0] + "."
 
             st.session_state.messages.append({"role": "assistant", "content": response})
