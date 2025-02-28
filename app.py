@@ -3,12 +3,11 @@ from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
 from langchain.chains.llm import LLMChain
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
 from langchain.chains import RetrievalQA
-from transformers import pipeline
+from huggingface_hub import InferenceClient
 import os
 import uuid
 from datetime import datetime
@@ -182,14 +181,12 @@ elif mode == "Chatbot":
         search_kwargs={"k": 5, "score_threshold": 0.7}
     )
 
-    # Use Hugging Face model instead of Ollama
-    hf_pipeline = pipeline(
-        "text-generation",
-        model="distilgpt2",  # Lightweight model for demo; replace with a better one if needed
-        max_new_tokens=50,   # Limit response length
-        truncation=True
-    )
-    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    # Hugging Face Inference API setup
+    api_token = os.getenv("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")  # Set this in Streamlit Cloud secrets
+    if not api_token:
+        st.error("Please set the HF_API_TOKEN in Streamlit Cloud secrets.")
+        st.stop()
+    llm_client = InferenceClient(model="deepseek-ai/DeepSeek-R1", token=api_token)
 
     prompt = """
     You are an AI assistant trained to answer questions based on the provided context.
@@ -204,6 +201,25 @@ elif mode == "Chatbot":
     Answer:"""
     QA_CHAIN_PROMPT = PromptTemplate.from_template(prompt)
 
+    # Custom LLM chain using InferenceClient
+    class HFInferenceLLM:
+        def __init__(self, client):
+            self.client = client
+
+        def generate(self, prompts, **kwargs):
+            outputs = []
+            for prompt in prompts:
+                response = self.client.text_generation(
+                    prompt,
+                    max_new_tokens=50,
+                    temperature=0.6,
+                    top_p=0.95,
+                    return_full_text=False
+                )
+                outputs.append({"text": response})
+            return {"generations": [outputs]}
+
+    llm = HFInferenceLLM(llm_client)
     llm_chain = LLMChain(llm=llm, prompt=QA_CHAIN_PROMPT, verbose=True)
     document_prompt = PromptTemplate(
         input_variables=["page_content", "source"],
