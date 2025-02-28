@@ -4,4 +4,4 @@ langchain-experimental
 langchain-huggingface
 faiss-cpu
 pdfplumber
-ollama
+huggingface-hub
